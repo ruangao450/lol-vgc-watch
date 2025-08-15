@@ -97,36 +97,74 @@ async function getLol(region){
   const tried = [];
   const cands = SLUGS[region] || [region];
 
-  // 1) live-<slug>-win.json
+  let shortCandidate = null; // live JSON'dan gelen "version: N" varsa en sona sakla
+
+  // 1) live-<slug>-win.json ve doğrudan manifest denemeleri
   for (const slug of cands) {
-    const live = await fetchJSON(LIVE(slug));
+    const liveUrl = LIVE(slug);
+    const live = await fetchJSON(liveUrl);
     tried.push(`live:${slug}:${live.status}`);
     if (!live.ok || !live.json) continue;
 
     const { direct, artifact, manifest } = fromLive(live.json);
 
+    // (a) artifact doğrudan live JSON'da
     if (artifact) return { value: shorten(artifact), debug: tried.concat("artifact:live") };
 
+    // (b) live JSON manifest URL veriyorsa
     if (manifest) {
-      const man = manifest.endsWith(".json") ? await fetchJSON(manifest) : await fetchText(manifest);
-      tried.push(`manifestUrl:${man.status}`);
-      if (man.ok) {
-        const art = artifactFrom(man.text, man.json || null);
+      const m = manifest.endsWith(".json") ? await fetchJSON(manifest) : await fetchText(manifest);
+      tried.push(`manifestUrl:${m.status}`);
+      if (m.ok) {
+        const art = artifactFrom(m.text, m.json || null);
         if (art) return { value: shorten(art), debug: tried.concat("artifact:manifestUrl") };
       }
     }
 
+    // (c) yalnız "version: N" geldiyse releases/N.* dene (ama ERKEN DÖNME!)
     if (direct) {
       const id = String(direct).trim();
-      for (const u of RELS(id)) {
-        const r = u.endsWith(".json") ? await fetchJSON(u) : await fetchText(u);
-        const key = u.includes("/releases/") ? u.split("/releases/")[1] : u;
+      for (const url of RELS(id)) {
+        const isJson = url.endsWith(".json");
+        const r = isJson ? await fetchJSON(url) : await fetchText(url);
+        const key = url.includes("/releases/") ? url.split("/releases/")[1] : url.split("/channels/public/")[1];
         tried.push(`${key}:${r.status}`);
         if (r.ok) {
           const art = artifactFrom(r.text, r.json || null);
           if (art) return { value: shorten(art), debug: tried.concat("artifact:releases") };
         }
       }
+      // artifact bulunamadı -> kısa N'yi ADAY olarak tut, ama fallback'lara devam et
+      if (!shortCandidate) shortCandidate = id;
+    }
+  }
+
+  // 2) Fallback: releaselisting_<REGION> -> solutionmanifest / releasemanifest
+  const R = (LISTING_REGION[region] || region.toUpperCase());
+  const list = await fetchText(LISTING(R));
+  tried.push(`releaselisting_${R}:${list.status}`);
+  if (list.ok && list.text) {
+    const relId = pickReleaseId(list.text); // 0.0.0.#### formatını çeker
+    if (relId) {
+      const sol = await fetchText(SOLMAN(relId));
+      tried.push(`solutionmanifest:${sol.status}`);
+      if (sol.ok) {
+        const art = artifactFrom(sol.text, null);
+        if (art) return { value: shorten(art), debug: tried.concat("artifact:solutionmanifest") };
+      }
+      const prm = await fetchText(PROJMAN(relId));
+      tried.push(`releasemanifest:${prm.status}`);
+      if (prm.ok) {
+        const art = artifactFrom(prm.text, null);
+        if (art) return { value: shorten(art), debug: tried.concat("artifact:releasemanifest") };
+      }
+    }
+  }
+
+  // 3) Hiçbiri olmadıysa, varsa kısa adayı döndür; yoksa null
+  if (shortCandidate) return { value: shortCandidate, debug: tried.concat("fallback:short(after-listing)") };
+  return { value: null, debug: tried.concat("no-hit") };
+}
       // live JSON verdiği kısa sürümü en azından döndür
       return { value: id, debug: tried.concat("fallback:short") };
     }
