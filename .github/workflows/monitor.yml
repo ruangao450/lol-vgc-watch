@@ -32,4 +32,4 @@ jobs:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
           LOL_REGIONS: "euw,na,kr,br,lan,tr"
           # DEBUG: "1"         # teşhis için geçici aç
-          # ALWAYS_SEND: "1"   # test için her çalıştırmada mesaj atar
+          ALWAYS_SEND: "1"   # test için her çalıştırmada mesaj atar
