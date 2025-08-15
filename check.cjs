@@ -1,0 +1,30 @@
+name: Monitor LoL (per region) & VGC – Only on change
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {}
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Load previous state
+        uses: actions/cache@v4
+        with:
+          path: .state
+          key: state-cache
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Run watcher
+        run: node check.cjs
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          LOL_REGIONS: "euw,na,kr,br,lan,tr"
+          ALWAYS_SEND: "1"   # ilk turda her durumda mesaj atar; çalıştığını görünce kaldır
