@@ -1,3 +1,11 @@
+      - name: Quick connectivity check
+        run: |
+          echo "Testing riotcdn…"
+          curl -I https://lol.secure.dyn.riotcdn.net/channels/public/live-euw-win.json || true
+          echo "Testing clientconfig (Vanguard)…"
+          curl -I https://clientconfig.rpg.riotgames.com/api/v1/config/public || true
+
+
 name: Monitor LoL (per region) & VGC – Only on change
 on:
   schedule:
