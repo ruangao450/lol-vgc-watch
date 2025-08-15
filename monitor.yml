@@ -23,8 +23,8 @@ jobs:
           node-version: "20"
 
       - name: Run watcher
-        run: node check.mjs
+        run: node check.cjs
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
           LOL_REGIONS: "euw,na,kr,br,lan,tr"
-          ALWAYS_SEND: "1"   # ilk testte her zaman mesaj atsın; sonra silersin
+          ALWAYS_SEND: "1"   # ilk turda her durumda mesaj atar; çalıştığını görünce kaldır
