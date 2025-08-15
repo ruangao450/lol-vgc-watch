@@ -5,7 +5,7 @@ const STATE_DIR = '.state';
 const STATE_FILE = path.join(STATE_DIR, 'versions.json');
 
 const DISCORD = process.env.DISCORD_WEBHOOK;
-const REGIONS = (process.env.LOL_REGIONS || 'tr,euw,na,kr')
+const REGIONS = (process.env.LOL_REGIONS || 'euw,na,kr,br,lan,tr')
   .split(',')
   .map(s => s.trim().toLowerCase())
   .filter(Boolean);
