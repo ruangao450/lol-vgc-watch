@@ -1,7 +1,6 @@
-// Vanguard (VGC) sürüm izleyici
-// - Kaynak: https://clientconfig.rpg.riotgames.com/api/v1/config/public
-// - "anticheat.vanguard.version" düz anahtarı ve nested/regex fallback destekli
-// - Sadece değişince Discord'a mesaj atar (ALWAYS_SEND=1 ile her seferinde atar)
+// Vanguard (VGC) sürüm izleyici – şık mesaj, saat damgası ve "son değişim" kaydı
+// Kaynak: https://clientconfig.rpg.riotgames.com/api/v1/config/public
+// Sadece değişince mesaj atar (ALWAYS_SEND=1 ile her seferinde atar)
 
 const fs = require("fs");
 const path = require("path");
@@ -15,10 +14,23 @@ const DEBUG  = process.env.DEBUG === "1";
 
 const VGC_URL = "https://clientconfig.rpg.riotgames.com/api/v1/config/public";
 
-// --- HTTP yardımcıları (Node 20'de global fetch var) ---
+// ---- Zaman/format yardımcıları ----
+function fmt(ts, tz = "Europe/Istanbul", locale = "tr-TR") {
+  try {
+    return new Intl.DateTimeFormat(locale, {
+      timeZone: tz, dateStyle: "medium", timeStyle: "short"
+    }).format(new Date(ts));
+  } catch {
+    // çok eski Node/ortam için yedek:
+    return new Date(ts).toISOString();
+  }
+}
+function nowISO() { return new Date().toISOString(); }
+
+// ---- HTTP helper ----
 async function fetchJSON(url) {
   try {
-    const r = await fetch(url, { headers: { "User-Agent":"vgc-watch/1.0", "Accept":"application/json" } });
+    const r = await fetch(url, { headers: { "User-Agent":"vgc-watch/1.1", "Accept":"application/json" } });
     const text = await r.text();
     let json = null; try { json = JSON.parse(text); } catch {}
     return { ok: r.ok, status: r.status, json, text };
@@ -41,7 +53,7 @@ async function postDiscord(content) {
   }
 }
 
-// --- VGC sürümünü çıkar ---
+// ---- VGC sürümünü çıkar ----
 async function getVgcVersion() {
   const res = await fetchJSON(VGC_URL);
   let v = null;
@@ -62,28 +74,55 @@ async function getVgcVersion() {
   return { version: v, status: res.status, peek: (res.text || "").slice(0, 120).replace(/\s+/g," ") };
 }
 
-// --- main ---
+// ---- main ----
 (async function main(){
   if (!fs.existsSync(STATE_DIR)) fs.mkdirSync(STATE_DIR, { recursive:true });
 
+  // önceki durum
   const prev = fs.existsSync(STATE_FILE)
     ? JSON.parse(fs.readFileSync(STATE_FILE, "utf8"))
-    : { vgc: null };
+    : { vgc: null, changedAt: null };
 
   const vgc = await getVgcVersion();
   const oldV = prev.vgc || null;
   const newV = vgc.version || null;
 
-  const changed = newV && newV !== oldV;
+  const changed = !!(newV && newV !== oldV);
+
+  // Son değişim zamanı (İstanbul ve UTC göstereceğiz)
+  const now = nowISO();
+  const changedAtISO = changed ? now : (prev.changedAt || null);
 
   if (changed || ALWAYS) {
+    const istNow  = fmt(now, "Europe/Istanbul", "tr-TR");
+    const utcNow  = fmt(now, "UTC", "en-GB");
+    const istLast = changedAtISO ? fmt(changed ? now : changedAtISO, "Europe/Istanbul", "tr-TR") : "—";
+    const utcLast = changedAtISO ? fmt(changed ? now : changedAtISO, "UTC", "en-GB") : "—";
+
     const lines = [
-      "📊 VGC Version",
-      `① 🛡️ OLD VGC version ➜ ${oldV || "—"}`,
-      `② 🟢 Latest VGC version ➜ ${newV || "—"}${DEBUG ? ` (status:${vgc.status}, peek:${vgc.peek})` : ""}`
-    ];
+      "🛡️ **Vanguard (VGC) Sürüm Takibi**",
+      `⏰ ${istNow} (İstanbul) • ${utcNow} UTC`,
+      "",
+      changed
+        ? "✅ **Güncellendi!**"
+        : "ℹ️ **Değişiklik yok.**",
+      changed
+        ? `\`${oldV || "—"}\` → \`${newV || "—"}\``
+        : `Geçerli sürüm: \`${newV || "—"}\``,
+      "────────────────────────────────",
+      `🗓️ Son değişim: ${istLast} (İstanbul) • ${utcLast} UTC`,
+      `🔗 Kaynak: ${VGC_URL}`,
+      DEBUG ? `\n(debug) status:${vgc.status}, peek:${vgc.peek}` : ""
+    ].filter(Boolean);
+
     await postDiscord(lines.join("\n"));
-    fs.writeFileSync(STATE_FILE, JSON.stringify({ vgc: newV }, null, 2), "utf8");
+
+    // state'i yaz
+    const nextState = {
+      vgc: newV,
+      changedAt: changed ? now : (prev.changedAt || null)
+    };
+    fs.writeFileSync(STATE_FILE, JSON.stringify(nextState, null, 2), "utf8");
     console.log("Message sent & state updated.");
   } else {
     console.log("No changes.");
