@@ -162,7 +162,7 @@ async function postDiscord(content) {
     `④ 🟢 Latest VGC version       ➜ ${newVGC || '—'}`
   ].join('\n');
 
-  if (anyChange) {
+  if (true) {
     const header = '📊 Versions';
     const sep = '────────────────────────────────';
     const msg = [header, ...regionBlocks, sep, vgcBlock].join('\n');
