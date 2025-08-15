@@ -25,7 +25,7 @@ jobs:
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
           SUPPORTED_VGC: '1.17.12.4'
+          ALWAYS_SEND: '1'
           # MENTION: '<@&ROLE_ID>'      # optional
           # ALERT_ON_MISMATCH: '1'      # optional
-          # ALWAYS_SEND: '1'            # optional (testing)
           # DEBUG: '1'                  # optional (testing)
