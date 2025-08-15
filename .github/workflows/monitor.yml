@@ -30,7 +30,10 @@ jobs:
       - name: Run VGC watcher
         run: node check.cjs
         env:
-          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-          # Aşağıdakileri test için geçici açıp sonra kaldırabilirsiniz:
-          # ALWAYS_SEND: "1"
-          # DEBUG: "1"
+  DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+  SUPPORTED_VGC: "1.17.12.4"   # <— buradan güncelleyebilirsin
+  # Optional:
+  # MENTION: "<@&ROLE_ID>"     # mismatch olduğunda ping
+  # ALERT_ON_MISMATCH: "1"     # mismatch sürdükçe her run’da uyar (tekrarlı alarm)
+   ALWAYS_SEND: "1"           # test
+  # DEBUG: "1"                 # test
