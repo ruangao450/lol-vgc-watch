@@ -1,9 +1,10 @@
 // LoL uzun build (örn. 15.16.704.6097) + VGC sürümü izleme
 // Bölgeler: euw, na, kr, br, lan, tr  (LOL_REGIONS ile değiştirilebilir)
 // - LoL: live-<slug>-win.json -> (artifact || manifest) -> uzun sürüm
-//        Bulunamazsa kısa patchline (263 vb.) döner
-// - VGC: "anticheat.vanguard.version" düz anahtarı + regex fallback
-// - Değişince mesaj atar; test için ALWAYS_SEND=1 / DEBUG=1 kullan
+//        olmazsa releases/<N>.*; o da olmazsa releaselisting_<REGION> -> solutionmanifest/releasemanifest
+//        hiçbiri yoksa kısa patchline (263 vb.) yazılır
+// - VGC: "anticheat.vanguard.version" düz anahtarı + nested/regex fallback
+// - Yalnız değişince mesaj atar; test için ALWAYS_SEND=1 / DEBUG=1 kullan
 
 const fs = require("fs");
 const path = require("path");
@@ -18,7 +19,7 @@ const STATE_FILE = path.join(STATE_DIR, "versions.json");
 const ALWAYS = process.env.ALWAYS_SEND === "1";
 const DEBUG  = process.env.DEBUG === "1";
 
-// ---- Bölge slug haritası ----
+// ---- Bölge slug & listing kodları ----
 const SLUGS = {
   euw: ["euw","euw1","eu-west"],
   na:  ["na","na1","north-america"],
@@ -27,21 +28,30 @@ const SLUGS = {
   lan: ["lan","la1","latam-north"],
   tr:  ["tr","tr1"]
 };
+const LISTING_REGION = { euw:"EUW", na:"NA", kr:"KR", br:"BR", lan:"LA1", tr:"TR" };
 
-// ---- URL yardımcıları ----
+// ---- Riot URL'leri ----
 const LIVE = s => `https://lol.secure.dyn.riotcdn.net/channels/public/live-${s}-win.json`;
+const RELS = id => [
+  `https://lol.secure.dyn.riotcdn.net/channels/public/releases/${id}.manifest`,
+  `https://lol.secure.dyn.riotcdn.net/channels/public/releases/${id}.json`,
+  `https://lol.secure.dyn.riotcdn.net/channels/public/releases/${id}/manifest`,
+  `https://lol.secure.dyn.riotcdn.net/channels/public/releases/${id}/manifest.json`,
+  `https://lol.secure.dyn.riotcdn.net/channels/public/releases/${id}/release.manifest`
+];
+const LISTING = R => `https://lol.secure.dyn.riotcdn.net/releases/live/solutions/lol_game_client_sln/releases/releaselisting_${R}`;
+const SOLMAN  = id => `https://lol.secure.dyn.riotcdn.net/releases/live/solutions/lol_game_client_sln/releases/${id}/solutionmanifest`;
+const PROJMAN = id => `https://lol.secure.dyn.riotcdn.net/releases/live/projects/lol_game_client/releases/${id}/releasemanifest`;
 
 const VGC_URL = "https://clientconfig.rpg.riotgames.com/api/v1/config/public";
 
-// ---- HTTP helpers (Node 20'de global fetch var) ----
+// ---- HTTP helpers ----
 async function fetchText(url) {
   try {
     const r = await fetch(url, { headers: { "User-Agent":"lol-vgc-watch/1.0" } });
     const t = await r.text();
     return { ok:r.ok, status:r.status, text:t };
-  } catch {
-    return { ok:false, status:0, text:"" };
-  }
+  } catch { return { ok:false, status:0, text:"" }; }
 }
 async function fetchJSON(url) {
   try {
@@ -49,71 +59,55 @@ async function fetchJSON(url) {
     const t = await r.text();
     let j=null; try { j = JSON.parse(t); } catch {}
     return { ok:r.ok, status:r.status, json:j, text:t };
-  } catch {
-    return { ok:false, status:0, json:null, text:"" };
-  }
+  } catch { return { ok:false, status:0, json:null, text:"" }; }
 }
 const shorten = v => (v ? String(v).split("+")[0] : null);
 
 // ---- JSON yardımcıları ----
 function fromLiveLoose(live) {
-  // Amaç: JSON yapısı değişse bile (a) artifact, (b) releases manifest URL yakalamak
   const obj = live.json;
   const text = live.text || "";
 
   let direct = null;
-  // 1) direct patchline
-  if (obj && obj.version != null) direct = String(obj.version);
-
-  // 2) JSON üzerinde geniş arama (artifact + manifest)
   let artifact = null;
   let manifestUrl = null;
 
-  // 2a) Metin tabanlı artifact yakalama
-  // "riot:artifact_version_id": { "values": ["15.16.704.6097+..."] }
+  if (obj && obj.version != null) direct = String(obj.version);
+
+  // Metin tabanlı artifact
   {
-    const m = text.match(/"riot:artifact_version_id"\s*:\s*{[^}]*"values"\s*:\s*\[\s*"([^"]+)"\s*\]/i);
+    const m = text.match(/"riot:artifact_version_id"\s*:\s*{[^}]*"values"\s*:\s*\[\s*"([^"]+)"/i);
     if (m) artifact = m[1];
   }
-
-  // 2b) Metin tabanlı manifest URL yakalama
-  // "download":{"url":"https://.../channels/public/releases/<HEX>.manifest" ...}
+  // Metin tabanlı manifest URL
   {
     const m = text.match(/"download"\s*:\s*{[^}]*"url"\s*:\s*"([^"]+\/channels\/public\/releases\/[^"]+\.manifest)"/i);
     if (m) manifestUrl = m[1];
   }
-
-  // 2c) Nesne ağacında emniyetli arama (labels + id + download.url)
+  // Nesne ağacı üzerinde güvenli yürüyüş
   const walk = (node) => {
     if (!node || typeof node !== "object") return;
-    // labels
     const labels = node.labels;
     if (!artifact && labels && typeof labels === "object") {
       const a = labels["riot:artifact_version_id"];
       if (a?.values?.[0]) artifact = a.values[0];
     }
-    // release.id -> gerekirse
     if (!manifestUrl && node.download?.url && typeof node.download.url === "string") {
       if (node.download.url.includes("/channels/public/releases/") && node.download.url.endsWith(".manifest")) {
         manifestUrl = node.download.url;
       }
     }
-    for (const k in node) {
-      if (Object.prototype.hasOwnProperty.call(node, k)) walk(node[k]);
-    }
+    for (const k in node) if (Object.prototype.hasOwnProperty.call(node, k)) walk(node[k]);
   };
   if (obj) walk(obj);
 
-  return { direct, artifact, manifestUrl, peek: text.slice(0, 180).replace(/\s+/g," ") };
+  return { direct, artifact, manifestUrl, peek: text.slice(0, 160).replace(/\s+/g," ") };
 }
-
 function artifactFrom(text, json) {
-  // Metin → artifact
   if (text) {
     const m = text.match(/riot:artifact_version_id[^"\n]*"([^"]+)"/);
     if (m) return m[1];
   }
-  // JSON → artifact
   if (json) {
     const a =
       json?.release?.labels?.["riot:artifact_version_id"]?.values?.[0] ||
@@ -122,32 +116,30 @@ function artifactFrom(text, json) {
   }
   return null;
 }
+const pickReleaseId = txt => {
+  const m = txt.match(/\b\d+\.\d+\.\d+\.\d+\b/);
+  return m ? m[0] : null;
+};
 
-// ---- LoL ana fonksiyon ----
+// ---- LoL ana fonksiyonu ----
 async function getLol(region){
   const tried = [];
   const cands = SLUGS[region] || [region];
 
   let shortCandidate = null;
 
-  // live-<slug>-win.json
+  // 1) live-<slug>-win.json ve türevleri
   for (const slug of cands) {
     const liveUrl = LIVE(slug);
     const live = await fetchJSON(liveUrl);
     tried.push(`live:${slug}:${live.status}`);
-
     if (!live.ok || (!live.json && !live.text)) continue;
 
-    // JSON/metin içinden geniş tarama
     const { direct, artifact, manifestUrl, peek } = fromLiveLoose(live);
     if (DEBUG && peek) tried.push(`livepeek:${peek}`);
 
-    // (a) artifact doğrudan varsa
-    if (artifact) {
-      return { value: shorten(artifact), debug: tried.concat("artifact:live") };
-    }
+    if (artifact) return { value: shorten(artifact), debug: tried.concat("artifact:live") };
 
-    // (b) manifest URL verdiyse, oradan artifact dene
     if (manifestUrl) {
       const man = manifestUrl.endsWith(".json") ? await fetchJSON(manifestUrl) : await fetchText(manifestUrl);
       tried.push(`manifestUrl:${man.status}`);
@@ -157,10 +149,46 @@ async function getLol(region){
       }
     }
 
-    // (c) kısa sürümü aday tut
     if (direct && !shortCandidate) shortCandidate = String(direct).trim();
+
+    // direct varsa /releases/<N>.* dene
+    if (direct) {
+      const id = String(direct).trim();
+      for (const url of RELS(id)) {
+        const resp = url.endsWith(".json") ? await fetchJSON(url) : await fetchText(url);
+        const key = url.includes("/releases/") ? url.split("/releases/")[1] : url;
+        tried.push(`${key}:${resp.status}`);
+        if (resp.ok) {
+          const art = artifactFrom(resp.text, resp.json || null);
+          if (art) return { value: shorten(art), debug: tried.concat("artifact:releases") };
+        }
+      }
+    }
   }
 
+  // 2) Fallback: releaselisting_<REGION> -> solutionmanifest / releasemanifest
+  const R = LISTING_REGION[region] || region.toUpperCase();
+  const list = await fetchText(LISTING(R));
+  tried.push(`releaselisting_${R}:${list.status}`);
+  if (list.ok && list.text) {
+    const relId = pickReleaseId(list.text);
+    if (relId) {
+      const sol = await fetchText(SOLMAN(relId));
+      tried.push(`solutionmanifest:${sol.status}`);
+      if (sol.ok) {
+        const art = artifactFrom(sol.text, null);
+        if (art) return { value: shorten(art), debug: tried.concat("artifact:solutionmanifest") };
+      }
+      const prm = await fetchText(PROJMAN(relId));
+      tried.push(`releasemanifest:${prm.status}`);
+      if (prm.ok) {
+        const art = artifactFrom(prm.text, null);
+        if (art) return { value: shorten(art), debug: tried.concat("artifact:releasemanifest") };
+      }
+    }
+  }
+
+  // 3) Kısa patchline'a düş
   if (shortCandidate) return { value: shortCandidate, debug: tried.concat("fallback:short") };
   return { value: null, debug: tried.concat("no-hit") };
 }
@@ -200,6 +228,7 @@ async function postDiscord(msg){
 // ---- main ----
 (async function(){
   if (!fs.existsSync(STATE_DIR)) fs.mkdirSync(STATE_DIR, { recursive:true });
+
   const prev = fs.existsSync(STATE_FILE)
     ? JSON.parse(fs.readFileSync(STATE_FILE, "utf8"))
     : { lol:{}, vgc:null };
