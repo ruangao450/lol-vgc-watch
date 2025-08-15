@@ -1,8 +1,9 @@
 // LoL uzun build (15.16.704.6097 gibi) + VGC sürümü izleme
-// - Her bölge ayrı ayrı kontrol edilir
-// - Sadece değişiklik olduğunda Discord'a mesaj atar
-// - Önceki değerler .state/versions.json içinde saklanır
-// - Manifest fallback: live-<slug>-win.json -> version N -> releases/N.(manifest|json)
+// - Bölgeler: EUW, NA, KR, BR, LAN, TR
+// - Değişiklik olursa Discord'a "OLD → Latest" formatında gönderir
+// - State: .state/versions.json
+// - LoL: live-<slug>-win.json -> version N -> releases/N.(manifest|json|manifest.json|manifest)
+// - VGC: clientconfig JSON + regex fallback
 
 import fs from 'fs';
 import path from 'path';
@@ -16,7 +17,7 @@ const REGIONS = (process.env.LOL_REGIONS || 'euw,na,kr,br,lan,tr')
 
 const DEBUG = process.env.DEBUG === '1';
 
-// Patchline slug adayları (ilk başarılı kullanılır)
+// Patchline slug adayları
 const CAND = {
   euw: ['euw','euw1','eu-west'],
   na:  ['na','na1','north-america'],
@@ -27,18 +28,26 @@ const CAND = {
 };
 
 const LIVE = slug => `https://lol.secure.dyn.riotcdn.net/channels/public/live-${slug}-win.json`;
-const REL_MANIFEST = id => `https://lol.secure.dyn.riotcdn.net/channels/public/releases/${id}.manifest`;
-const REL_JSON     = id => `https://lol.secure.dyn.riotcdn.net/channels/public/releases/${id}.json`;
+const REL = id => [
+  // en yaygın varyantlar
+  `https://lol.secure.dyn.riotcdn.net/channels/public/releases/${id}.manifest`,
+  `https://lol.secure.dyn.riotcdn.net/channels/public/releases/${id}.json`,
+  `https://lol.secure.dyn.riotcdn.net/channels/public/releases/${id}/manifest`,
+  `https://lol.secure.dyn.riotcdn.net/channels/public/releases/${id}/manifest.json`,
+  // bazı CDN’lerde alt klasör:
+  `https://lol.secure.dyn.riotcdn.net/channels/public/releases/${id}/release.manifest`,
+];
 
 const VGC_URL = 'https://clientconfig.rpg.riotgames.com/api/v1/config/public';
 
-async function req(url, wantText = false) {
+async function req(url, mode = 'auto') {
+  // mode: 'json' -> JSON beklenir, 'text' -> düz metin, 'auto' -> önce text, sonra JSON parse dener
   try {
-    const r = await fetch(url, { headers: { 'User-Agent': 'lol-vgc-watch/1.0', 'Accept': wantText ? '*/*' : 'application/json' } });
+    const r = await fetch(url, { headers: { 'User-Agent': 'lol-vgc-watch/1.0' } });
     const status = r.status;
-    const text = await r.text(); // önce text
+    const text = await r.text();
     let json = null;
-    if (!wantText) { try { json = JSON.parse(text); } catch {} }
+    if (mode !== 'text') { try { json = JSON.parse(text); } catch {} }
     return { ok: r.ok, status, text, json };
   } catch (e) {
     return { ok: false, status: 0, err: e.message };
@@ -47,9 +56,8 @@ async function req(url, wantText = false) {
 
 const shorten = v => v ? String(v).split('+')[0] : null;
 
-// live JSON içinden olabildiğince çok ipucu topla
 function pickFromLiveJson(obj) {
-  const direct = obj?.version ?? null; // 263 gibi
+  const direct = obj?.version ?? null; // 263 vb.
   const artifact =
     obj?.releases?.[0]?.release?.labels?.['riot:artifact_version_id']?.values?.[0] ??
     obj?.release?.labels?.['riot:artifact_version_id']?.values?.[0] ??
@@ -58,19 +66,16 @@ function pickFromLiveJson(obj) {
   return { direct, artifact, manifestUrl };
 }
 
-// releases/N.manifest veya releases/N.json içinden artifact çıkar
-function pickArtifactFromTextOrJson({ text, json }) {
-  // 1) düz metin manifest: ... riot:artifact_version_id "15.16.704.6097+..."
+function artifactFromTextOrJson({ text, json }) {
   if (text) {
     const m = text.match(/riot:artifact_version_id[^"\n]*"([^"]+)"/);
     if (m) return m[1];
   }
-  // 2) JSON manifest (bazı kanallarda oluyor)
   if (json) {
-    const a1 =
+    const a =
       json?.release?.labels?.['riot:artifact_version_id']?.values?.[0] ??
       json?.labels?.['riot:artifact_version_id']?.values?.[0] ?? null;
-    if (a1) return a1;
+    if (a) return a;
   }
   return null;
 }
@@ -78,58 +83,50 @@ function pickArtifactFromTextOrJson({ text, json }) {
 async function getLoLForRegion(region) {
   const tried = [];
   for (const slug of (CAND[region] || [region])) {
+    // 1) live JSON
     const liveUrl = LIVE(slug);
-    const live = await req(liveUrl);
-    tried.push(`${slug}:${live.status}`);
+    const live = await req(liveUrl, 'auto');
+    tried.push(`live:${slug}:${live.status}`);
+    if (!live.ok || !live.json) continue;
 
-    if (live.ok && live.json) {
-      const { direct, artifact, manifestUrl } = pickFromLiveJson(live.json);
+    const { direct, artifact, manifestUrl } = pickFromLiveJson(live.json);
 
-      // 1) doğrudan artifact varsa hemen dön
-      if (artifact) {
-        return { long: shorten(artifact), short: direct ?? null, debug: tried.concat('artifact:live') };
+    // (a) artifact doğrudan varsa
+    if (artifact) {
+      return { long: shorten(artifact), short: direct ?? null, debug: tried.concat('artifact:live') };
+    }
+
+    // (b) live JSON manifest URL veriyorsa, onu dene
+    if (manifestUrl) {
+      const man = await req(manifestUrl, 'auto');
+      tried.push(`manifestUrl:${man.status}`);
+      if (man.ok) {
+        const art = artifactFromTextOrJson(man);
+        if (art) return { long: shorten(art), short: direct ?? null, debug: tried.concat('artifact:manifestUrl') };
       }
+    }
 
-      // 2) live JSON manifest URL veriyorsa, onu dene
-      if (manifestUrl) {
-        const man = await req(manifestUrl, true);
-        tried.push(`manifest:${man.status}`);
-        if (man.ok) {
-          const art = pickArtifactFromTextOrJson(man);
-          if (art) return { long: shorten(art), short: direct ?? null, debug: tried.concat('artifact:manifestURL') };
+    // (c) sadece "version: N" verdiyse: releases/N.* adaylarını dene
+    if (typeof direct !== 'undefined' && direct !== null) {
+      const id = String(direct).trim();
+      for (const url of REL(id)) {
+        const r = await req(url, 'auto');
+        tried.push(`${url.split('/releases/')[1]}:${r.status}`);
+        if (r.ok) {
+          const art = artifactFromTextOrJson(r);
+          if (art) return { long: shorten(art), short: id, debug: tried.concat('artifact:releases') };
         }
       }
-
-      // 3) live JSON sadece "version: N" verdiyse: releases/N.(manifest|json) tahmini
-      if (typeof direct !== 'undefined' && direct !== null) {
-        const id = String(direct).trim();
-        // .manifest
-        const man1 = await req(REL_MANIFEST(id), true);
-        tried.push(`releases/${id}.manifest:${man1.status}`);
-        if (man1.ok) {
-          const art = pickArtifactFromTextOrJson(man1);
-          if (art) return { long: shorten(art), short: id, debug: tried.concat('artifact:releases.manifest') };
-        }
-        // .json (bazı kanallarda JSON meta)
-        const man2 = await req(REL_JSON(id), false);
-        tried.push(`releases/${id}.json:${man2.status}`);
-        if (man2.ok) {
-          const art = pickArtifactFromTextOrJson(man2);
-          if (art) return { long: shorten(art), short: id, debug: tried.concat('artifact:releases.json') };
-        }
-        // artifact bulunamazsa en azından kısa sürümü döndür
-        return { long: null, short: id, debug: tried.concat('fallback:short') };
-      }
+      // artifact bulunamazsa en azından kısa sürümü ver
+      return { long: null, short: id, debug: tried.concat('fallback:short') };
     }
   }
   return { long: null, short: null, debug: tried.concat('no-live') };
 }
 
 async function getVGC() {
-  const r = await req(VGC_URL);
-  // 1) normal yol
+  const r = await req(VGC_URL, 'auto');
   let v = r.json?.anticheat?.vanguard?.version ?? null;
-  // 2) regex fallback (JSON şeması değişirse)
   if (!v && r.text) {
     const m = r.text.match(/"vanguard"\s*:\s*{[^}]*"version"\s*:\s*"([^"]+)"/i);
     if (m) v = m[1];
@@ -152,12 +149,13 @@ async function postDiscord(content) {
 }
 
 (async () => {
-  // Önceki durum
+  if (!fs.existsSync(STATE_DIR)) fs.mkdirSync(STATE_DIR, { recursive: true });
+
   const prev = fs.existsSync(STATE_FILE)
     ? JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'))
     : { lol: {}, vgc: null };
 
-  // Bölgeleri çek
+  // Bölgeler
   const perRegion = await Promise.all(REGIONS.map(async r => [r, await getLoLForRegion(r)]));
   const lolCurrent = Object.fromEntries(perRegion.map(([r, res]) => [r, res.long || res.short || null]));
 
@@ -165,21 +163,20 @@ async function postDiscord(content) {
   const vgcRes = await getVGC();
   const vgcCurrent = vgcRes.vgc || null;
 
-  // Mesajı oluştur + değişiklik algıla
+  // Mesaj + değişiklik
   let anyChange = false;
-  const regionBlocks = [];
+  const blocks = [];
 
   for (const [region, res] of perRegion) {
-    const now = res.long || res.short || null;     // uzun varsa onu, yoksa kısa
+    const now = res.long || res.short || null;
     const old = prev.lol?.[region] || null;
-
     if (now && now !== old) anyChange = true;
 
-    const title   = `🌍 ${region.toUpperCase()}`;
+    const title = `🌍 ${region.toUpperCase()}`;
     const oldLine = `① 🎮 OLD LOL version ➜ ${old || '—'}`;
     const newLine = `② 🔴 Latest LOL version       ➜ ${now || '—'}`;
-    const dbg     = DEBUG ? `\n↳ debug: ${res.debug.join(' | ')}` : '';
-    regionBlocks.push(`${title}\n${oldLine}\n${newLine}${dbg}`);
+    const dbg = DEBUG ? `\n↳ debug: ${res.debug.join(' | ')}` : '';
+    blocks.push(`${title}\n${oldLine}\n${newLine}${dbg}`);
   }
 
   const oldVGC = prev.vgc || null;
@@ -188,19 +185,4 @@ async function postDiscord(content) {
 
   const vgcBlock = [
     `③ 🛡️ OLD VGC version ➜ ${oldVGC || '—'}`,
-    `④ 🟢 Latest VGC version       ➜ ${newVGC || '—'}${DEBUG ? ` (status: ${vgcRes.status})` : ''}`
-  ].join('\n');
-
-  if (anyChange || DEBUG) {
-    const header = '📊 Versions';
-    const sep    = '────────────────────────────────';
-    const msg    = [header, ...regionBlocks, sep, vgcBlock].join('\n');
-    await postDiscord(msg);
-
-    // state güncelle
-    fs.writeFileSync(STATE_FILE, JSON.stringify({ lol: lolCurrent, vgc: newVGC }, null, 2), 'utf8');
-    if (DEBUG) console.log('State updated.');
-  } else {
-    console.log('No changes.');
-  }
-})().catch(e => console.error(`Uncaught error: ${e.message}`));
+    `④ 🟢 Latest VGC vers
