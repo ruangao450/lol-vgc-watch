@@ -60,4 +60,121 @@ function extractLoLBuild(liveJson) {
   // Bazı patchline JSON’larında kökte 'version' var
   const direct = liveJson?.version || null;
   const rel = Array.isArray(liveJson?.releases) ? liveJson.releases[0] : null;
-  const artifact = rel
+  const artifact = rel?.release?.labels?.['riot:artifact_version_id']?.values?.[0] || null;
+  const manifest = rel?.download?.url || null;
+  return { direct, artifact, manifest };
+}
+function shortenArtifact(v) {
+  if (!v) return null;
+  return v.split('+')[0];
+}
+
+// --- Bölge için çoklu slug dene, ilk başarılıyı kullan ---
+async function fetchLoLLongForRegion(regionKey) {
+  const candidates = PATCHLINE_CANDIDATES[regionKey] || [regionKey];
+  const tried = [];
+  for (const slug of candidates) {
+    const url = LIVE_URL(slug);
+    tried.push(url);
+    const live = await jget(url);
+    if (live && !live.__error) {
+      const { direct, artifact, manifest } = extractLoLBuild(live);
+      let chosen = direct || artifact || null;
+
+      if (!chosen && manifest) {
+        const text = await tget(manifest);
+        if (text) {
+          const m = text.match(/riot:artifact_version_id[^"\n]*"(.*?)"/);
+          if (m) chosen = m[1];
+        }
+      }
+      if (chosen) {
+        return { version: shortenArtifact(chosen), tried, used: url };
+      }
+      // JSON geldi ama içinde beklenen alan yoksa diğer adaya geç
+    }
+    // JSON gelmediyse (404/403 vs) diğer adayı dene
+  }
+  // Hiçbiri olmadı
+  return { version: null, tried, used: null };
+}
+
+async function fetchVGC() {
+  const conf = await jget(VGC_URL);
+  return conf?.anticheat?.vanguard?.version || null;
+}
+async function postDiscord(content) {
+  if (!DISCORD) {
+    console.log('[DRY RUN] Discord tanımsız. Mesaj:\n' + content);
+    return;
+  }
+  try {
+    const r = await fetch(DISCORD, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content })
+    });
+    console.log(`[Discord] HTTP ${r.status}`);
+  } catch (e) {
+    console.error(`[Discord] gönderim hatası: ${e.message}`);
+  }
+}
+
+(async () => {
+  const prev = fs.existsSync(STATE_FILE)
+    ? JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'))
+    : { lol: {}, vgc: null };
+
+  // Bölgeleri paralel çek
+  const results = await Promise.all(
+    REGIONS.map(async r => {
+      const res = await fetchLoLLongForRegion(r);
+      return [r, res];
+    })
+  );
+  const lolCurrent = Object.fromEntries(results.map(([r, res]) => [r, res.version]));
+
+  const vgcCurrent = await fetchVGC();
+
+  // Değişiklik algılama
+  let anyChange = false;
+  const regionBlocks = [];
+
+  for (const [region, res] of results) {
+    const oldV = prev.lol?.[region] || null;
+    const newV = res.version || null;
+    if (newV && oldV !== newV) anyChange = true;
+
+    const title = `🌍 ${region.toUpperCase()}`;
+    const oldLine = `① 🎮 OLD LOL version ➜ ${oldV || '—'}`;
+    const newLine = `② 🔴 Latest LOL version       ➜ ${newV || '—'}`;
+    // Eğer hiç bulunamadıysa küçük bir ipucu ekleyelim (ilk denenen URL'yi gösterir)
+    const hint = newV ? '' : ` (not found; tried: ${res.tried[0]})`;
+    regionBlocks.push(`${title}\n${oldLine}\n${newLine}${hint}`);
+  }
+
+  const oldVGC = prev.vgc || null;
+  const newVGC = vgcCurrent || null;
+  if (newVGC && oldVGC !== newVGC) anyChange = true;
+
+  const vgcBlock = [
+    `③ 🛡️ OLD VGC version ➜ ${oldVGC || '—'}`,
+    `④ 🟢 Latest VGC version       ➜ ${newVGC || '—'}`
+  ].join('\n');
+
+  if (anyChange) {
+    const header = '📊 Versions';
+    const sep = '────────────────────────────────';
+    const msg = [header, ...regionBlocks, sep, vgcBlock].join('\n');
+    await postDiscord(msg);
+
+    fs.writeFileSync(
+      STATE_FILE,
+      JSON.stringify({ lol: lolCurrent, vgc: newVGC }, null, 2),
+      'utf8'
+    );
+    console.log('State updated and message sent.');
+  } else {
+    console.log('No changes.');
+  }
+})().catch(e => console.error(`Uncaught error: ${e.message}`));
