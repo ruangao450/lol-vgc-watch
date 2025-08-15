@@ -59,10 +59,10 @@ async function getVgc(){
   const oldV = prev.vgc ?? null;
 
   const firstRun       = oldV === null;
-  const versionChanged = !firstRun && newV && newV !== oldV;       // Riot yeni VGC yayınladı
+  const versionChanged = !firstRun && newV && newV !== oldV;       // Riot yeni VGC yayınladı (bu run)
   const mismatch       = newV && newV !== SUPPORTED;               // henüz desteklemiyorsun (kırmızı)
 
-  // Daha güvenli "compat restored" (yalnız geçmişte mismatch vardıysa ve SUPPORTED’ı yeni sürüme çektiysen)
+  // Daha güvenli "compat restored"
   const hadPrevSupported = typeof prev.supported === "string" && prev.supported.length > 0;
   const oldMismatch = (typeof prev.mismatch === "boolean")
     ? prev.mismatch
@@ -75,7 +75,7 @@ async function getVgc(){
   const nowISO = now.toISOString();
   const nowUnix = Math.floor(now.getTime()/1000);
 
-  // Riot VGC güncellendiğinde o anı kaydet (ilk tespit edildiği an)
+  // VGC update anı (yalnız o run'da versionChanged true olur)
   const changedAtISO = versionChanged ? nowISO : (prev.changedAt || null);
   const changedAtUnix = changedAtISO ? Math.floor(new Date(changedAtISO).getTime()/1000) : null;
 
@@ -89,10 +89,7 @@ async function getVgc(){
     `**Supported VGC Version** ➜ \`${SUPPORTED}\`\n` +
     `**Updated VGC Version** ➜ \`${newV || "—"}\``;
 
-  // Açıklama: İSTEDİĞİN MANTIK — "Updated" YEŞİL YOK; yalnızca:
-  // - mismatch -> KIRMIZI uyarı
-  // - compatRestored -> YEŞİL "Software updated"
-  // - diğerleri -> GRİ "Up-to-date (safe)"
+  // Açıklama
   let description, color;
   if (compatRestored) {
     description = `✅ **Software updated**\nIt is now safe to use the software with the new VGC version.\n\n${headerLines}`;
@@ -105,13 +102,17 @@ async function getVgc(){
     color = COLOR_INFO;
   }
 
-  const fields = [
-    {
+  // Alanlar
+  const fields = [];
+  // 🆙 VGC updated at → SADECE Riot update anında göster
+  if (versionChanged) {
+    fields.push({
       name: "🆙 VGC updated at",
-      value: changedAtUnix ? `<t:${changedAtUnix}:F> • <t:${changedAtUnix}:R>` : "—",
+      value: `<t:${nowUnix}:F> • <t:${nowUnix}:R>`,
       inline: false
-    }
-  ];
+    });
+  }
+  // Uyumluluk geri geldi bilgisini her zaman (compatRestored anında) ekle
   if (compatRestored) {
     fields.push({
       name: "🔧 Compatibility restored",
@@ -129,7 +130,7 @@ async function getVgc(){
     timestamp: nowISO
   };
 
-  // Pingleme
+  // Ping
   let content;
   if (compatRestored && MENTION_SAFE) content = MENTION_SAFE;
   else if ((versionChanged && mismatch) || (ALERT_ON_MISMATCH && mismatch)) content = MENTION_ALERT;
@@ -145,7 +146,7 @@ async function getVgc(){
     await sendEmbed(embed, content);
     const next = {
       vgc: newV,
-      changedAt: changedAtISO,
+      changedAt: changedAtISO,    // update anını state'te tutmaya devam (isteğe bağlı)
       mismatch,
       supported: SUPPORTED
     };
