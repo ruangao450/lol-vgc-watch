@@ -1,4 +1,4 @@
-// VGC Version Watch — Supported vs Updated with "VGC updated at" & safe-use notices
+// VGC Version Watch — Always warn on Riot updates until you bump SUPPORTED_VGC
 
 const fs = require("fs");
 const path = require("path");
@@ -8,20 +8,20 @@ const STATE_DIR = ".state";
 const STATE_FILE = path.join(STATE_DIR, "versions.json");
 
 const SUPPORTED = process.env.SUPPORTED_VGC || "1.17.12.4";
-const ALWAYS    = process.env.ALWAYS_SEND === "1";           // test mode: send every run
-const DEBUG     = process.env.DEBUG === "1";                 // show debug field
+const ALWAYS    = process.env.ALWAYS_SEND === "1";           // test mode
+const DEBUG     = process.env.DEBUG === "1";
 const ALERT_ON_MISMATCH = process.env.ALERT_ON_MISMATCH === "1";
 
-// Mentions
+// Mentions (optional)
 const MENTION_ALERT = process.env.MENTION || "";             // ping on mismatch
-const MENTION_SAFE  = process.env.MENTION_SAFE || "";        // ping when compatibility is restored
+const MENTION_SAFE  = process.env.MENTION_SAFE || "";        // ping when compatibility restored
 
 const VGC_URL = "https://clientconfig.rpg.riotgames.com/api/v1/config/public";
 const ICON    = "https://raw.githubusercontent.com/twitter/twemoji/master/assets/72x72/1f6e1.png"; // 🛡️
 
 async function fetchJSON(url){
   try {
-    const r = await fetch(url, { headers:{ "User-Agent":"vgc-watch/2.3", "Accept":"application/json" } });
+    const r = await fetch(url, { headers:{ "User-Agent":"vgc-watch/2.4", "Accept":"application/json" } });
     const text = await r.text();
     let json=null; try{ json=JSON.parse(text); }catch{}
     return { ok:r.ok, status:r.status, json, text };
@@ -59,10 +59,10 @@ async function getVgc(){
   const oldV = prev.vgc ?? null;
 
   const firstRun       = oldV === null;
-  const versionChanged = !firstRun && newV && newV !== oldV;
-  const mismatch       = newV && newV !== SUPPORTED;
+  const versionChanged = !firstRun && newV && newV !== oldV;       // Riot yeni VGC yayınladı
+  const mismatch       = newV && newV !== SUPPORTED;               // henüz desteklemiyorsun (kırmızı)
 
-  // Safer "compat restored" logic
+  // Daha güvenli "compat restored" (yalnız geçmişte mismatch vardıysa ve SUPPORTED’ı yeni sürüme çektiysen)
   const hadPrevSupported = typeof prev.supported === "string" && prev.supported.length > 0;
   const oldMismatch = (typeof prev.mismatch === "boolean")
     ? prev.mismatch
@@ -70,26 +70,29 @@ async function getVgc(){
   const supportedChanged = hadPrevSupported ? (prev.supported !== SUPPORTED) : false;
   const compatRestored = !!(!firstRun && supportedChanged && oldMismatch === true && !mismatch && newV && newV === SUPPORTED);
 
-  // Times (UTC)
+  // Zamanlar (UTC)
   const now = new Date();
   const nowISO = now.toISOString();
   const nowUnix = Math.floor(now.getTime()/1000);
 
-  // Record when Riot updated VGC (first detection moment)
+  // Riot VGC güncellendiğinde o anı kaydet (ilk tespit edildiği an)
   const changedAtISO = versionChanged ? nowISO : (prev.changedAt || null);
   const changedAtUnix = changedAtISO ? Math.floor(new Date(changedAtISO).getTime()/1000) : null;
 
-  // Colors
-  const COLOR_OK   = 0x2ecc71; // green
-  const COLOR_INFO = 0x7f8c8d; // gray
-  const COLOR_WARN = 0xe74c3c; // red
+  // Renkler
+  const COLOR_OK   = 0x2ecc71; // yeşil
+  const COLOR_INFO = 0x7f8c8d; // gri
+  const COLOR_WARN = 0xe74c3c; // kırmızı
 
-  // Top lines
+  // Üst iki satır
   const headerLines =
     `**Supported VGC Version** ➜ \`${SUPPORTED}\`\n` +
     `**Updated VGC Version** ➜ \`${newV || "—"}\``;
 
-  // Descriptions (added a clear safe-use line for Updated & Up-to-date)
+  // Açıklama: İSTEDİĞİN MANTIK — "Updated" YEŞİL YOK; yalnızca:
+  // - mismatch -> KIRMIZI uyarı
+  // - compatRestored -> YEŞİL "Software updated"
+  // - diğerleri -> GRİ "Up-to-date (safe)"
   let description, color;
   if (compatRestored) {
     description = `✅ **Software updated**\nIt is now safe to use the software with the new VGC version.\n\n${headerLines}`;
@@ -97,15 +100,11 @@ async function getVgc(){
   } else if (mismatch) {
     description = `⚠️ **Action required**\n🛑 Please stop using the software until a compatibility update is released.\n\n${headerLines}`;
     color = COLOR_WARN;
-  } else if (versionChanged) {
-    description = `🎉 **Updated**\n✅ Software is up-to-date and safe to use with the current VGC version.\n\n${headerLines}`;
-    color = COLOR_OK;
   } else {
     description = `ℹ️ **Up-to-date**\n✅ Software is up-to-date and safe to use with the current VGC version.\n\n${headerLines}`;
     color = COLOR_INFO;
   }
 
-  // Fields
   const fields = [
     {
       name: "🆙 VGC updated at",
@@ -113,63 +112,3 @@ async function getVgc(){
       inline: false
     }
   ];
-  if (compatRestored) {
-    fields.push({
-      name: "🔧 Compatibility restored",
-      value: `<t:${nowUnix}:F> • <t:${nowUnix}:R>`,
-      inline: false
-    });
-  }
-  if (DEBUG) fields.push({ name:"🪲 Debug", value:`status: \`${status}\`\npeek: \`${peek}\``, inline:false });
-
-  const embed = {
-    author: { name: "Vanguard (VGC) Version Watch", icon_url: ICON },
-    description,
-    color,
-    fields,
-    timestamp: nowISO
-  };
-
-  // Mentions
-  let content;
-  if (compatRestored && MENTION_SAFE) content = MENTION_SAFE;
-  else if ((versionChanged && mismatch) || (ALERT_ON_MISMATCH && mismatch)) content = MENTION_ALERT;
-
-  // When to send (ALWAYS covers test runs)
-  const shouldSend =
-    versionChanged
-    || compatRestored
-    || ALWAYS
-    || (ALERT_ON_MISMATCH && mismatch);
-
-  if (shouldSend){
-    await sendEmbed(embed, content);
-    const next = {
-      vgc: newV,
-      changedAt: changedAtISO,
-      mismatch,
-      supported: SUPPORTED
-    };
-    fs.writeFileSync(STATE_FILE, JSON.stringify(next, null, 2), "utf8");
-    console.log("Embed sent & state updated.");
-  } else {
-    const next = {
-      vgc: newV,
-      changedAt: changedAtISO,
-      mismatch,
-      supported: SUPPORTED
-    };
-    fs.writeFileSync(STATE_FILE, JSON.stringify(next, null, 2), "utf8");
-    console.log("No changes.");
-  }
-})().catch(async (e)=>{
-  console.error("Fatal:", e);
-  await sendEmbed({
-    title:"❌ VGC watcher error",
-    description:"An error occurred while running.",
-    color:0xe74c3c,
-    fields:[{ name:"Error", value:`\`${e?.message || e}\`` }],
-    timestamp:new Date().toISOString()
-  });
-  process.exit(1);
-});
