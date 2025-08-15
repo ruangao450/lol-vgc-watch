@@ -1,20 +1,19 @@
-name: Monitor VGC – Only on change
+name: VGC Watch
 
 on:
   schedule:
-    - cron: "*/10 * * * *"    # her 10 dakikada bir
-  workflow_dispatch: {}        # elle tetikleme butonu
+    - cron: "*/10 * * * *"   # every 10 minutes
+  workflow_dispatch: {}       # manual trigger
 
 permissions:
   contents: read
 
 jobs:
-  run:
+  watch:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      # .state klasörünü sakla/geri yükle (rolling cache)
       - name: Load previous state (rolling cache)
         uses: actions/cache@v4
         with:
@@ -28,12 +27,11 @@ jobs:
           node-version: "20"
 
       - name: Run VGC watcher
-        run: node check.cjs
         env:
-  DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-  SUPPORTED_VGC: "1.17.12.4"   # <— buradan güncelleyebilirsin
-  # Optional:
-  # MENTION: "<@&ROLE_ID>"     # mismatch olduğunda ping
-  # ALERT_ON_MISMATCH: "1"     # mismatch sürdükçe her run’da uyar (tekrarlı alarm)
-  # ALWAYS_SEND: "1"           # test
-  # DEBUG: "1"                 # test
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}  # Settings → Secrets → Actions
+          SUPPORTED_VGC: "1.17.12.4"                       # senin desteklediğin sürüm
+          # MENTION: "<@&ROLE_ID>"                         # (opsiyonel) update olduğunda ping
+          # ALERT_ON_MISMATCH: "1"                         # mismatch sürdükçe her run’da uyar
+          # ALWAYS_SEND: "1"                               # test için
+          # DEBUG: "1"                                     # test için
+        run: node check.cjs
