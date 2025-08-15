@@ -8,13 +8,13 @@ const STATE_DIR = ".state";
 const STATE_FILE = path.join(STATE_DIR, "versions.json");
 
 const SUPPORTED = process.env.SUPPORTED_VGC || "1.17.12.4";
-const ALWAYS    = process.env.ALWAYS_SEND === "1";          // testing
-const DEBUG     = process.env.DEBUG === "1";                // debug field
+const ALWAYS    = process.env.ALWAYS_SEND === "1";           // test modu: her çalıştırmada gönder
+const DEBUG     = process.env.DEBUG === "1";                 // debug alanını göster
 const ALERT_ON_MISMATCH = process.env.ALERT_ON_MISMATCH === "1";
 
 // Mentions
-const MENTION_ALERT = process.env.MENTION || "";            // ping on mismatch (e.g. "<@&ROLE_ID>" or "@everyone")
-const MENTION_SAFE  = process.env.MENTION_SAFE || "";       // ping when compatibility is restored
+const MENTION_ALERT = process.env.MENTION || "";             // mismatch uyarısında ping (örn. "<@&ROLE_ID>" / "@everyone")
+const MENTION_SAFE  = process.env.MENTION_SAFE || "";        // uyumluluk sağlandığında ping
 
 const VGC_URL = "https://clientconfig.rpg.riotgames.com/api/v1/config/public";
 const ICON    = "https://raw.githubusercontent.com/twitter/twemoji/master/assets/72x72/1f6e1.png"; // 🛡️
@@ -51,7 +51,7 @@ async function getVgc(){
 (async function(){
   if (!fs.existsSync(STATE_DIR)) fs.mkdirSync(STATE_DIR,{recursive:true});
 
-  // Backward-compatible default state
+  // Eski sürümlerle uyumlu başlangıç state'i
   const prev = fs.existsSync(STATE_FILE)
     ? JSON.parse(fs.readFileSync(STATE_FILE,"utf8"))
     : { vgc:null, changedAt:null, mismatch:false, supported: SUPPORTED };
@@ -63,34 +63,34 @@ async function getVgc(){
   const versionChanged = !firstRun && newV && newV !== oldV;
   const mismatch       = newV && newV !== SUPPORTED;
 
-  // Detect if you bumped SUPPORTED and compatibility is now restored
-  const oldMismatch    = typeof prev.mismatch === "boolean" ? prev.mismatch : (prev.vgc && prev.vgc !== prev.supported);
+  // SUPPORTED'ı güncellediğinde ve artık mismatch yoksa "Software updated" bildir
+  const oldMismatch      = typeof prev.mismatch === "boolean" ? prev.mismatch : (prev.vgc && prev.vgc !== prev.supported);
   const supportedChanged = prev.supported !== SUPPORTED;
-  const compatRestored = !!(supportedChanged && oldMismatch && !mismatch && newV && newV === SUPPORTED);
+  const compatRestored   = !!(supportedChanged && oldMismatch && !mismatch && newV && newV === SUPPORTED);
 
-  // Timestamps (UTC)
+  // Zamanlar (UTC)
   const now = new Date();
   const nowISO = now.toISOString();
   const nowUnix = Math.floor(now.getTime()/1000);
 
-  // When VGC changes, record that moment in state as "changedAt"
+  // VGC değiştiği anı state'e yazıyoruz (ilk kez tespit edildiği an)
   const changedAtISO = versionChanged ? nowISO : (prev.changedAt || null);
   const changedAtUnix = changedAtISO ? Math.floor(new Date(changedAtISO).getTime()/1000) : null;
 
-  // Colors
-  const COLOR_OK   = 0x2ecc71; // green
-  const COLOR_INFO = 0x7f8c8d; // gray
-  const COLOR_WARN = 0xe74c3c; // red
+  // Renkler
+  const COLOR_OK   = 0x2ecc71; // yeşil
+  const COLOR_INFO = 0x7f8c8d; // gri
+  const COLOR_WARN = 0xe74c3c; // kırmızı
 
-  // Top two lines (always shown)
+  // Üst iki satır (her zaman göster)
   const headerLines =
     `**Supported VGC Version** ➜ \`${SUPPORTED}\`\n` +
     `**Updated VGC Version** ➜ \`${newV || "—"}\``;
 
-  // Description by case
+  // Açıklama
   let description, color;
   if (compatRestored) {
-    description = `✅ **Software updated**\nYour software has been updated and is now safe to use with the new VGC version.\n\n${headerLines}`;
+    description = `✅ **Software updated**\nIt is now safe to use the software with the new VGC version.\n\n${headerLines}`;
     color = COLOR_OK;
   } else if (mismatch) {
     description = `⚠️ **Action required**\n🛑 Please stop using the software until a compatibility update is released.\n\n${headerLines}`;
@@ -103,15 +103,14 @@ async function getVgc(){
     color = COLOR_INFO;
   }
 
-  // Fields
-  const fields = [];
-  // Show when Riot updated VGC (the moment we detected the change)
-  fields.push({
-    name: "🆙 VGC updated at",
-    value: changedAtUnix ? `<t:${changedAtUnix}:F> • <t:${changedAtUnix}:R>` : "—",
-    inline: false
-  });
-  // If compatibility has just been restored (you bumped SUPPORTED), show that moment too
+  // Alanlar
+  const fields = [
+    {
+      name: "🆙 VGC updated at",
+      value: changedAtUnix ? `<t:${changedAtUnix}:F> • <t:${changedAtUnix}:R>` : "—",
+      inline: false
+    }
+  ];
   if (compatRestored) {
     fields.push({
       name: "🔧 Compatibility restored",
@@ -129,31 +128,30 @@ async function getVgc(){
     timestamp: nowISO
   };
 
-  // Who to ping?
+  // Ping kime?
   let content;
   if (compatRestored && MENTION_SAFE) content = MENTION_SAFE;
   else if ((versionChanged && mismatch) || (ALERT_ON_MISMATCH && mismatch)) content = MENTION_ALERT;
 
-  // When to send?
+  // Ne zaman gönderelim?
   const shouldSend =
-    versionChanged            // VGC changed → notify (green or red)
-    || compatRestored         // you updated software to support the new VGC → notify (green)
-    || (ALWAYS && !firstRun)  // test mode (skip baseline noise)
-    || (ALERT_ON_MISMATCH && mismatch); // repeating alert while mismatch persists
+    versionChanged
+    || compatRestored
+    || ALWAYS                       // ← TEST MODU: her çalıştırmada düşür
+    || (ALERT_ON_MISMATCH && mismatch);
 
   if (shouldSend){
     await sendEmbed(embed, content);
-    // Persist new state
     const next = {
       vgc: newV,
-      changedAt: changedAtISO,   // when VGC changed
+      changedAt: changedAtISO,       // VGC'nin güncellendiği an (ilk tespit edildiği an)
       mismatch,
       supported: SUPPORTED
     };
     fs.writeFileSync(STATE_FILE, JSON.stringify(next, null, 2), "utf8");
     console.log("Embed sent & state updated.");
   } else {
-    // Still persist supported/mismatch so we can detect compatRestored later
+    // State'i yine de güncel tut
     const next = {
       vgc: newV,
       changedAt: changedAtISO,
