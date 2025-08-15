@@ -16,7 +16,7 @@ jobs:
       DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}  # bot token for channel rename
       VOICE_CHANNEL_ID: '1396105985537343538'               # <- your voice channel ID
       SUPPORTED_VGC: '1.17.12.4'
-      ALWAYS_SEND: '1'
+      # ALWAYS_SEND: '1'
       MENTION: '<@everyone>'        # ping on mismatch
       MENTION_SAFE: '<@everyone>'   # ping when compatibility restored
       # Optional testing/tuning:
