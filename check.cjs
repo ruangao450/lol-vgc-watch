@@ -1,4 +1,4 @@
-// Vanguard (VGC) Version Watch — Discord embed (UTC-only, polished)
+// Vanguard (VGC) Version Watch — Discord embed (UTC-only, emoji-rich)
 
 const fs = require("fs");
 const path = require("path");
@@ -12,12 +12,11 @@ const DEBUG   = process.env.DEBUG === "1";       // show debug field
 const MENTION = process.env.MENTION || "";       // e.g. "<@&ROLE_ID>" or "@everyone"
 
 const VGC_URL = "https://clientconfig.rpg.riotgames.com/api/v1/config/public";
-const ICON    = "https://raw.githubusercontent.com/twitter/twemoji/master/assets/72x72/1f6e1.png"; // shield emoji
+const ICON    = "https://raw.githubusercontent.com/twitter/twemoji/master/assets/72x72/1f6e1.png"; // 🛡️
 
-// ---------- HTTP ----------
 async function fetchJSON(url) {
   try {
-    const r = await fetch(url, { headers: { "User-Agent":"vgc-watch/1.4", "Accept":"application/json" } });
+    const r = await fetch(url, { headers: { "User-Agent":"vgc-watch/1.5", "Accept":"application/json" } });
     const text = await r.text();
     let json = null; try { json = JSON.parse(text); } catch {}
     return { ok:r.ok, status:r.status, json, text };
@@ -26,7 +25,6 @@ async function fetchJSON(url) {
   }
 }
 
-// ---------- Discord ----------
 async function sendEmbed(embed, content) {
   const payload = { embeds: [embed] };
   if (content) payload.content = content;
@@ -39,7 +37,6 @@ async function sendEmbed(embed, content) {
   if (DEBUG) console.log("Discord status:", r.status);
 }
 
-// ---------- VGC version ----------
 async function getVgcVersion() {
   const res = await fetchJSON(VGC_URL);
   let v = null;
@@ -57,7 +54,6 @@ async function getVgcVersion() {
   return { version: v, status: res.status, peek: (res.text || "").slice(0, 110).replace(/\s+/g," ") };
 }
 
-// ---------- main ----------
 (async function main(){
   if (!fs.existsSync(STATE_DIR)) fs.mkdirSync(STATE_DIR, { recursive:true });
 
@@ -71,53 +67,52 @@ async function getVgcVersion() {
 
   const changed = !!(newV && newV !== oldV);
 
-  // UTC timestamps
+  // UTC time (absolute + relative via Discord timestamp tags)
   const now = new Date();
   const nowISO = now.toISOString();
   const nowUnix = Math.floor(now.getTime() / 1000);
   const changedAtISO = changed ? nowISO : (prev.changedAt || null);
   const changedAtUnix = changedAtISO ? Math.floor(new Date(changedAtISO).getTime()/1000) : null;
 
-  // Colors
   const COLOR_UPDATED = 0x2ecc71; // green
   const COLOR_STABLE  = 0x7f8c8d; // gray
   const color = changed ? COLOR_UPDATED : COLOR_STABLE;
 
   const fields = [];
+
   if (changed) {
     fields.push(
-      { name: "Previous", value: `\`${oldV || "—"}\``, inline: true },
-      { name: "Current",  value: `\`${newV || "—"}\``, inline: true }
+      { name: "🆕 Current",  value: `\`${newV || "—"}\``, inline: true },
+      { name: "↩️ Previous", value: `\`${oldV || "—"}\``, inline: true }
     );
   } else {
-    fields.push({ name: "Current", value: `\`${newV || "—"}\``, inline: true });
+    fields.push({ name: "🛡️ Current", value: `\`${newV || "—"}\``, inline: true });
   }
 
   fields.push(
     {
-      name: "Last change (UTC)",
+      name: "🗓️ Last change",
       value: changedAtUnix ? `<t:${changedAtUnix}:F> • <t:${changedAtUnix}:R>` : "—",
       inline: false
     },
     {
-      name: "Checked (UTC)",
+      name: "⏱️ Checked",
       value: `<t:${nowUnix}:F> • <t:${nowUnix}:R>`,
       inline: false
-    },
-    { name: "Source", value: `[clientconfig.rpg.riotgames.com](${VGC_URL})`, inline: false }
+    }
   );
 
   if (DEBUG) {
-    fields.push({ name: "Debug", value: `status: \`${vgc.status}\`\npeek: \`${vgc.peek}\``, inline: false });
+    fields.push({ name: "🪲 Debug", value: `status: \`${vgc.status}\`\npeek: \`${vgc.peek}\``, inline: false });
   }
 
   const embed = {
     author: { name: "Vanguard (VGC) Version Watch", icon_url: ICON },
-    description: changed ? "✅ **Updated**" : "ℹ️ **Up-to-date**",
+    description: changed ? "🎉 **Updated**" : "ℹ️ **Up-to-date**",
     color,
     fields,
-    timestamp: nowISO, // Discord renders this in the embed header
-    footer: { text: "UTC+0" }
+    timestamp: nowISO
+    // no footer → no "UTC+0" text
   };
 
   const content = changed && MENTION ? MENTION : undefined;
@@ -136,8 +131,7 @@ async function getVgcVersion() {
     description: "An error occurred while running.",
     color: 0xe74c3c,
     fields: [{ name: "Error", value: `\`${e?.message || e}\`` }],
-    timestamp: new Date().toISOString(),
-    footer: { text: "UTC+0" }
+    timestamp: new Date().toISOString()
   });
   process.exit(1);
 });
