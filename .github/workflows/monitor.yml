@@ -1,4 +1,4 @@
-name: Monitor LoL (per region) & VGC – Only on change
+name: Monitor LoL (per region) & VGC – DEBUG
 on:
   schedule:
     - cron: "*/10 * * * *"
@@ -22,9 +22,10 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Run watcher
+      - name: Run watcher (DEBUG)
         run: node check.cjs
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
           LOL_REGIONS: "euw,na,kr,br,lan,tr"
-          ALWAYS_SEND: "1"   # ilk testte her çalışmada mesaj atar; sonra kaldır
+          ALWAYS_SEND: "1"   # test: her çalıştırmada mesaj at
+          DEBUG: "1"         # test: denenen URL ve HTTP kodları mesajda görünsün
