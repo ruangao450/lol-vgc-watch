@@ -1,4 +1,4 @@
-name: Monitor LoL (per region) & VGC – DEBUG
+name: Monitor LoL (per region) & VGC – Only on change
 on:
   schedule:
     - cron: "*/10 * * * *"
@@ -22,24 +22,9 @@ jobs:
         with:
           node-version: "20"
 
-      # 1) Webhook'u tek başına test et (200 dönmeli ve kanala kısa bir mesaj düşmeli)
-      - name: Discord webhook quick test
-        run: |
-          curl -s -o /dev/null -w "%{http_code}\n" \
-            -H "Content-Type: application/json" \
-            -d '{"content": "✅ Webhook test – (GitHub Actions)"}' \
-            "${{ secrets.DISCORD_WEBHOOK }}"
-
-      # 2) Ağ testi – örnek iki uç nokta
-      - name: Quick connectivity check
-        run: |
-          echo "Riot CDN EUW:" && curl -I https://lol.secure.dyn.riotcdn.net/channels/public/live-euw-win.json || true
-          echo "Vanguard clientconfig:" && curl -I https://clientconfig.rpg.riotgames.com/api/v1/config/public || true
-
-      # 3) Script'i DEBUG modda çalıştır (her durumda mesaj atar ve denenen URL'leri yazar)
-      - name: Run watcher (DEBUG)
+      - name: Run watcher
         run: node check.mjs
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
           LOL_REGIONS: "euw,na,kr,br,lan,tr"
-          DEBUG: "1"
+          # DEBUG: "1"   # (isteğe bağlı) bir tur teşhis için aç
