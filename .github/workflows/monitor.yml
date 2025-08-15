@@ -23,9 +23,11 @@ jobs:
       - name: Run VGC watcher
         run: node check.cjs
         env:
-          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-          SUPPORTED_VGC: '1.17.12.4'
-          ALWAYS_SEND: '1'
-          # MENTION: '<@&ROLE_ID>'      # optional
-          # ALERT_ON_MISMATCH: '1'      # optional
-          # DEBUG: '1'                  # optional (testing)
+    DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+    SUPPORTED_VGC: '1.17.12.4'
+    ALWAYS_SEND: '1'
+    DEBUG: '1'
+    # MENTION: '<@&ROLE_ID>'        # mismatch olduğunda ping
+    # MENTION_SAFE: '<@&ROLE_ID>'   # uyumluluk sağlandığında ping
+    # ALERT_ON_MISMATCH: '1'        # mismatch sürdükçe her çalıştırmada kırmızı uyarıyı tekrarlar
+    
