@@ -112,3 +112,63 @@ async function getVgc(){
       inline: false
     }
   ];
+  if (compatRestored) {
+    fields.push({
+      name: "🔧 Compatibility restored",
+      value: `<t:${nowUnix}:F> • <t:${nowUnix}:R>`,
+      inline: false
+    });
+  }
+  if (DEBUG) fields.push({ name:"🪲 Debug", value:`status: \`${status}\`\npeek: \`${peek}\``, inline:false });
+
+  const embed = {
+    author: { name: "Vanguard (VGC) Version Watch", icon_url: ICON },
+    description,
+    color,
+    fields,
+    timestamp: nowISO
+  };
+
+  // Pingleme
+  let content;
+  if (compatRestored && MENTION_SAFE) content = MENTION_SAFE;
+  else if ((versionChanged && mismatch) || (ALERT_ON_MISMATCH && mismatch)) content = MENTION_ALERT;
+
+  // Ne zaman gönderelim?
+  const shouldSend =
+    versionChanged                // Riot yeni VGC yayınladı → uyar (kırmızı)
+    || compatRestored             // Sen SUPPORTED’ı yeni sürüme çektin → yeşil
+    || ALWAYS                     // test
+    || (ALERT_ON_MISMATCH && mismatch); // mismatch sürdükçe tekrarlı uyarı
+
+  if (shouldSend){
+    await sendEmbed(embed, content);
+    const next = {
+      vgc: newV,
+      changedAt: changedAtISO,
+      mismatch,
+      supported: SUPPORTED
+    };
+    fs.writeFileSync(STATE_FILE, JSON.stringify(next, null, 2), "utf8");
+    console.log("Embed sent & state updated.");
+  } else {
+    const next = {
+      vgc: newV,
+      changedAt: changedAtISO,
+      mismatch,
+      supported: SUPPORTED
+    };
+    fs.writeFileSync(STATE_FILE, JSON.stringify(next, null, 2), "utf8");
+    console.log("No changes.");
+  }
+})().catch(async (e)=>{
+  console.error("Fatal:", e);
+  await sendEmbed({
+    title:"❌ VGC watcher error",
+    description:"An error occurred while running.",
+    color:0xe74c3c,
+    fields:[{ name:"Error", value:`\`${e?.message || e}\`` }],
+    timestamp:new Date().toISOString()
+  });
+  process.exit(1);
+});
