@@ -32,6 +32,6 @@ jobs:
           SUPPORTED_VGC: "1.17.12.4"                       # senin desteklediğin sürüm
           # MENTION: "<@&ROLE_ID>"                         # (opsiyonel) update olduğunda ping
           # ALERT_ON_MISMATCH: "1"                         # mismatch sürdükçe her run’da uyar
-          # ALWAYS_SEND: "1"                               # test için
+           ALWAYS_SEND: "1"                               # test için
           # DEBUG: "1"                                     # test için
         run: node check.cjs
