@@ -32,5 +32,5 @@ jobs:
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
           # Aşağıdakileri test için geçici açıp sonra kaldırabilirsiniz:
-ALWAYS_SEND: "1"
-DEBUG: "1"
+          ALWAYS_SEND: "1"
+          DEBUG: "1"
