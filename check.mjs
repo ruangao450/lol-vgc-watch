@@ -182,7 +182,7 @@ async function postDiscord(content) {
   ].join('\n');
 
   // Mesajı yalnızca değişiklik olduğunda gönder
-  if (anyChange || DEBUG) {
+  if (true || DEBUG) {
     const header = '📊 Versions';
     const sep    = '────────────────────────────────';
     const msg    = [header, ...regionBlocks, sep, vgcBlock].join('\n');
