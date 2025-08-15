@@ -110,4 +110,128 @@ function fromLiveLoose(live) {
 function artifactFrom(text, json) {
   // Metin → artifact
   if (text) {
-    const m = text.match(/riot:artifact_versi_
+    const m = text.match(/riot:artifact_version_id[^"\n]*"([^"]+)"/);
+    if (m) return m[1];
+  }
+  // JSON → artifact
+  if (json) {
+    const a =
+      json?.release?.labels?.["riot:artifact_version_id"]?.values?.[0] ||
+      json?.labels?.["riot:artifact_version_id"]?.values?.[0] || null;
+    if (a) return a;
+  }
+  return null;
+}
+
+// ---- LoL ana fonksiyon ----
+async function getLol(region){
+  const tried = [];
+  const cands = SLUGS[region] || [region];
+
+  let shortCandidate = null;
+
+  // live-<slug>-win.json
+  for (const slug of cands) {
+    const liveUrl = LIVE(slug);
+    const live = await fetchJSON(liveUrl);
+    tried.push(`live:${slug}:${live.status}`);
+
+    if (!live.ok || (!live.json && !live.text)) continue;
+
+    // JSON/metin içinden geniş tarama
+    const { direct, artifact, manifestUrl, peek } = fromLiveLoose(live);
+    if (DEBUG && peek) tried.push(`livepeek:${peek}`);
+
+    // (a) artifact doğrudan varsa
+    if (artifact) {
+      return { value: shorten(artifact), debug: tried.concat("artifact:live") };
+    }
+
+    // (b) manifest URL verdiyse, oradan artifact dene
+    if (manifestUrl) {
+      const man = manifestUrl.endsWith(".json") ? await fetchJSON(manifestUrl) : await fetchText(manifestUrl);
+      tried.push(`manifestUrl:${man.status}`);
+      if (man.ok) {
+        const art = artifactFrom(man.text, man.json || null);
+        if (art) return { value: shorten(art), debug: tried.concat("artifact:manifestUrl") };
+      }
+    }
+
+    // (c) kısa sürümü aday tut
+    if (direct && !shortCandidate) shortCandidate = String(direct).trim();
+  }
+
+  if (shortCandidate) return { value: shortCandidate, debug: tried.concat("fallback:short") };
+  return { value: null, debug: tried.concat("no-hit") };
+}
+
+// ---- VGC ----
+async function getVgc(){
+  const r = await fetchJSON(VGC_URL);
+  let v = null;
+  if (r.json) {
+    v = r.json["anticheat.vanguard.version"]
+     || r.json?.anticheat?.vanguard?.version
+     || null;
+  }
+  if (!v && r.text) {
+    let m = r.text.match(/"anticheat\.vanguard\.version"\s*:\s*"([^"]+)"/i);
+    if (!m) m = r.text.match(/"vanguard"\s*:\s*{[^}]*"version"\s*:\s*"([^"]+)"/i);
+    if (m) v = m[1];
+  }
+  return { v, status: r.status, peek: (r.text || "").slice(0,120).replace(/\s+/g," ") };
+}
+
+// ---- Discord ----
+async function postDiscord(msg){
+  if (!DISCORD) { console.log("[DRY]\n"+msg); return; }
+  try {
+    const r = await fetch(DISCORD, {
+      method: "POST",
+      headers: { "Content-Type":"application/json" },
+      body: JSON.stringify({ content: msg })
+    });
+    if (DEBUG) console.log("Discord status:", r.status);
+  } catch(e) {
+    console.error("Discord send error:", e.message);
+  }
+}
+
+// ---- main ----
+(async function(){
+  if (!fs.existsSync(STATE_DIR)) fs.mkdirSync(STATE_DIR, { recursive:true });
+  const prev = fs.existsSync(STATE_FILE)
+    ? JSON.parse(fs.readFileSync(STATE_FILE, "utf8"))
+    : { lol:{}, vgc:null };
+
+  const results = await Promise.all(REGIONS.map(async r => [r, await getLol(r)]));
+  const lolNow  = Object.fromEntries(results.map(([r,obj]) => [r, obj.value]));
+
+  const vgc = await getVgc();
+
+  let any = false;
+  const lines = ["📊 Versions"];
+  for (const [region, obj] of results) {
+    const cur = obj.value || null;
+    const old = prev.lol?.[region] || null;
+    if (cur && cur !== old) any = true;
+
+    lines.push(`🌍 ${region.toUpperCase()}`);
+    lines.push(`① 🎮 OLD LOL version ➜ ${old || "—"}`);
+    lines.push(`② 🔴 Latest LOL version       ➜ ${cur || "—"}`);
+    if (DEBUG) lines.push(`↳ debug: ${obj.debug.join(" | ")}`);
+  }
+
+  if (vgc.v && vgc.v !== (prev.vgc || null)) any = true;
+  lines.push("────────────────────────────────");
+  lines.push(`③ 🛡️ OLD VGC version ➜ ${prev.vgc || "—"}`);
+  lines.push(`④ 🟢 Latest VGC version       ➜ ${vgc.v || "—"}${DEBUG ? ` (status:${vgc.status}, peek:${vgc.peek})` : ""}`);
+
+  if (any || ALWAYS || DEBUG) {
+    await postDiscord(lines.join("\n"));
+    fs.writeFileSync(STATE_FILE, JSON.stringify({ lol: lolNow, vgc: vgc.v || null }, null, 2), "utf8");
+    console.log("Message sent & state updated.");
+  } else {
+    console.log("No changes.");
+  }
+})();
