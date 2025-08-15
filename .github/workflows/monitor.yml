@@ -3,7 +3,7 @@ name: VGC Watch
 on:
   workflow_dispatch:
   schedule:
-    - cron: '*/10 * * * *'   # every 10 minutes
+    - cron: '*/10 * * * *'   # every 10 minutes (UTC)
 
 permissions:
   contents: read
@@ -12,13 +12,16 @@ jobs:
   watch:
     runs-on: ubuntu-latest
     env:
-      DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}  # Settings → Secrets → Actions
+      DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}      # webhook for embeds
+      DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}  # bot token for channel rename
+      VOICE_CHANNEL_ID: '1396105985537343538'               # <- your voice channel ID
       SUPPORTED_VGC: '1.17.12.4'
-      ALWAYS_SEND: '1'   # TEST: her çalıştırmada mesaj gönderir; test bitince kaldırın
-      DEBUG: '1'         # TEST: debug alanını gösterir; test bitince kaldırın
-      # MENTION: '<@&ROLE_ID>'        # mismatch olduğunda ping
-      # MENTION_SAFE: '<@&ROLE_ID>'   # uyumluluk sağlandığında ping
-      # ALERT_ON_MISMATCH: '1'        # mismatch sürdükçe her run'da kırmızı uyarı
+      # Optional testing/tuning:
+      # ALWAYS_SEND: '1'
+      # DEBUG: '1'
+      # ALERT_ON_MISMATCH: '1'
+      # MENTION: '<@&ROLE_ID>'        # ping on mismatch
+      # MENTION_SAFE: '<@&ROLE_ID>'   # ping when compatibility restored
     steps:
       - name: Checkout
         uses: actions/checkout@v4
