@@ -3,7 +3,7 @@ name: VGC Watch
 on:
   workflow_dispatch:
   schedule:
-    - cron: '*/10 * * * *'
+    - cron: '*/10 * * * *'   # every 10 minutes
 
 permissions:
   contents: read
@@ -12,16 +12,24 @@ jobs:
   watch:
     runs-on: ubuntu-latest
     env:
-      DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+      DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}  # Settings → Secrets → Actions
       SUPPORTED_VGC: '1.17.12.4'
-      ALWAYS_SEND: '1'   # ← TEST MODU: her çalıştırmada mesaj göndersin
-      DEBUG: '1'         # ← (opsiyonel) debug alanını gösterir
-      # MENTION: '<@&ROLE_ID>'
-      # MENTION_SAFE: '<@&ROLE_ID>'
-      # ALERT_ON_MISMATCH: '1'
+      ALWAYS_SEND: '1'   # TEST: her çalıştırmada mesaj gönderir; test bitince kaldırın
+      DEBUG: '1'         # TEST: debug alanını gösterir; test bitince kaldırın
+      # MENTION: '<@&ROLE_ID>'        # mismatch olduğunda ping
+      # MENTION_SAFE: '<@&ROLE_ID>'   # uyumluluk sağlandığında ping
+      # ALERT_ON_MISMATCH: '1'        # mismatch sürdükçe her run'da kırmızı uyarı
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Load previous state (rolling cache)
+        uses: actions/cache@v4
+        with:
+          path: .state
+          key: state-${{ runner.os }}-${{ github.run_number }}
+          restore-keys: |
+            state-${{ runner.os }}-
 
       - name: Setup Node
         uses: actions/setup-node@v4
