@@ -2,8 +2,8 @@ name: Monitor LoL (per region) & VGC – TEST
 
 on:
   schedule:
-    - cron: "*/10 * * * *"   # her 10 dakikada bir
-  workflow_dispatch: {}       # elle tetikleme
+    - cron: "*/10 * * * *"     # her 10 dakikada bir
+  workflow_dispatch: {}         # elle tetikleme
 
 permissions:
   contents: read
@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # .state'i sakla/geri yükle (rolling cache)
+      # .state klasörünü sakla/geri yükle (rolling cache)
       - name: Load previous state (rolling cache)
         uses: actions/cache@v4
         with:
@@ -27,10 +27,33 @@ jobs:
         with:
           node-version: "20"
 
+      # (Teşhis) Webhook gizlisi var mı? (uzunluğu yazdır – içerik maskelenir)
+      - name: Check webhook secret presence
+        run: |
+          if [ -z "${DISCORD_WEBHOOK}" ]; then
+            echo "❌ DISCORD_WEBHOOK is EMPTY"; exit 1
+          fi
+          echo "✅ DISCORD_WEBHOOK length: ${#DISCORD_WEBHOOK}"
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+
+      # (Teşhis) Minik bir duman testi: webhook'a kısa bir mesaj gönder
+      - name: Smoke test webhook
+        run: |
+          code=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Content-Type: application/json" \
+            -d '{"content":"🧪 Webhook smoke test from GitHub Actions"}' \
+            "${DISCORD_WEBHOOK}")
+          echo "Webhook HTTP: $code"
+          if [ "$code" -ge 400 ]; then echo "❌ Webhook failed"; exit 1; fi
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+
+      # Asıl izleyici
       - name: Run watcher
         run: node check.cjs
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
           LOL_REGIONS: "euw,na,kr,br,lan,tr"
-          ALWAYS_SEND: "1"   # TEST: her çalıştırmada mesaj atsın
-          DEBUG: "1"         # TEST: denenen URL/HTTP kodlarını mesaja ekle
+          ALWAYS_SEND: "1"   # her çalıştırmada mesaj atsın (testten sonra kaldır)
+          DEBUG: "1"         # denenen URL/HTTP kodlarını log ve mesaja yaz (testten sonra kaldır)
