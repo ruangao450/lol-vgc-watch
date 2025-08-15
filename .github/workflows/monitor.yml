@@ -1,8 +1,9 @@
-name: Monitor LoL (per region) & VGC – DEBUG
+name: Monitor LoL (per region) & VGC – Only on change
 on:
   schedule:
-    - cron: "*/10 * * * *"
-  workflow_dispatch: {}
+    - cron: "*/10 * * * *"        # her 10 dakikada bir
+  workflow_dispatch: {}            # elle tetikleme
+
 permissions:
   contents: read
 
@@ -12,20 +13,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Load previous state
+      # state dosyasını sakla/geri yükle (rolling cache)
+      - name: Load previous state (rolling cache)
         uses: actions/cache@v4
         with:
           path: .state
-          key: state-cache
+          key: state-${{ runner.os }}-${{ github.run_number }}
+          restore-keys: |
+            state-${{ runner.os }}-
 
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
 
-      - name: Run watcher (DEBUG)
+      - name: Run watcher
         run: node check.cjs
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
           LOL_REGIONS: "euw,na,kr,br,lan,tr"
-          ALWAYS_SEND: "1"   # test: her çalıştırmada mesaj at
-          DEBUG: "1"         # test: denenen URL ve HTTP kodları mesajda görünsün
+          # DEBUG: "1"         # teşhis için geçici aç
+          # ALWAYS_SEND: "1"   # test için her çalıştırmada mesaj atar
