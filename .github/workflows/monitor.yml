@@ -17,11 +17,11 @@ jobs:
       VOICE_CHANNEL_ID: '1396105985537343538'               # <- your voice channel ID
       SUPPORTED_VGC: '1.17.12.4'
       ALWAYS_SEND: '1'
+      MENTION: '<@everyone>'        # ping on mismatch
+      MENTION_SAFE: '<@everyone>'   # ping when compatibility restored
       # Optional testing/tuning:
       # DEBUG: '1'
       # ALERT_ON_MISMATCH: '1'
-      # MENTION: '<@&ROLE_ID>'        # ping on mismatch
-      # MENTION_SAFE: '<@&ROLE_ID>'   # ping when compatibility restored
     steps:
       - name: Checkout
         uses: actions/checkout@v4
