@@ -1,7 +1,7 @@
 name: Monitor LoL (per region) & VGC – Only on change
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "*/10 * * * *"   # her 10 dakikada bir
   workflow_dispatch: {}
 permissions:
   contents: read
@@ -27,4 +27,4 @@ jobs:
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
           LOL_REGIONS: "euw,na,kr,br,lan,tr"
-          # DEBUG: "1"   # (isteğe bağlı) bir tur teşhis için aç
+          # DEBUG: "1"   # sorun ayıklarken geçici aç; sonra bu satırı kaldır
