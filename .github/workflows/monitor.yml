@@ -35,5 +35,5 @@ jobs:
   # Optional:
   # MENTION: "<@&ROLE_ID>"     # mismatch olduğunda ping
   # ALERT_ON_MISMATCH: "1"     # mismatch sürdükçe her run’da uyar (tekrarlı alarm)
-   ALWAYS_SEND: "1"           # test
+  # ALWAYS_SEND: "1"           # test
   # DEBUG: "1"                 # test
