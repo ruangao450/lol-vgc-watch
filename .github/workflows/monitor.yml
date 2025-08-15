@@ -1,37 +1,31 @@
 name: VGC Watch
 
 on:
+  workflow_dispatch:
   schedule:
-    - cron: "*/10 * * * *"   # every 10 minutes
-  workflow_dispatch: {}       # manual trigger
+    - cron: '*/10 * * * *'   # every 10 minutes
 
 permissions:
   contents: read
 
 jobs:
-  watch:
+  run:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Load previous state (rolling cache)
-        uses: actions/cache@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          path: .state
-          key: state-${{ runner.os }}-${{ github.run_number }}
-          restore-keys: |
-            state-${{ runner.os }}-
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
+          node-version: 20
 
       - name: Run VGC watcher
-        env:
-          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}  # Settings → Secrets → Actions
-          SUPPORTED_VGC: "1.17.12.4"                       # senin desteklediğin sürüm
-          # MENTION: "<@&ROLE_ID>"                         # (opsiyonel) update olduğunda ping
-          # ALERT_ON_MISMATCH: "1"                         # mismatch sürdükçe her run’da uyar
-           ALWAYS_SEND: "1"                               # test için
-          # DEBUG: "1"                                     # test için
         run: node check.cjs
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          SUPPORTED_VGC: '1.17.12.4'
+          # MENTION: '<@&ROLE_ID>'      # optional
+          # ALERT_ON_MISMATCH: '1'      # optional
+          # ALWAYS_SEND: '1'            # optional (testing)
+          # DEBUG: '1'                  # optional (testing)
