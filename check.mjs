@@ -1,4 +1,4 @@
-// LoL uzun build sürümü (15.16.704.6097 gibi) + VGC sürümü izleme
+// LoL uzun build sürümü (15.16.704.6097) + VGC sürümü izleme
 // - Her bölge ayrı ayrı kontrol edilir
 // - Sadece versiyon değişince Discord'a mesaj atılır
 // - Önceki değerler .state/versions.json içinde saklanır
@@ -93,7 +93,7 @@ async function fetchLoLLongForRegion(regionKey) {
   for (const slug of candidates) {
     const url  = LIVE_URL(slug);
     const live = await jget(url);
-    tried.push(`${slug}`);
+    tried.push(slug);
 
     if (live) {
       const { direct, artifact, manifest } = extractLoLBuild(live);
@@ -115,7 +115,6 @@ async function fetchLoLLongForRegion(regionKey) {
     }
   }
 
-  // Hiçbiri çalışmadı
   if (DEBUG) console.warn(`[${regionKey}] no version found. tried: ${tried.join(', ')}`);
   return { version: null, used: null, tried };
 }
@@ -133,4 +132,70 @@ async function postDiscord(content) {
   try {
     const r = await fetch(DISCORD, {
       method: 'POST',
-      headers: { 'Content-Type': 'applic
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content })
+    });
+    if (DEBUG) console.log(`[Discord] HTTP ${r.status}`);
+  } catch (e) {
+    console.error(`[Discord] gönderim hatası: ${e.message}`);
+  }
+}
+
+// ---------- Ana akış ----------
+(async () => {
+  const prev = fs.existsSync(STATE_FILE)
+    ? JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'))
+    : { lol: {}, vgc: null };
+
+  // Bölgeleri paralel çek
+  const results = await Promise.all(
+    REGIONS.map(async r => [r, await fetchLoLLongForRegion(r)])
+  );
+  const lolCurrent = Object.fromEntries(results.map(([r, res]) => [r, res.version]));
+
+  // VGC
+  const vgcCurrent = await fetchVGC();
+
+  // Değişiklik algılama
+  let anyChange = false;
+  const regionBlocks = [];
+
+  for (const [region, res] of results) {
+    const oldV = prev.lol?.[region] || null;
+    const newV = res.version || null;
+
+    if (newV && oldV !== newV) anyChange = true;
+
+    const title   = `🌍 ${region.toUpperCase()}`;
+    const oldLine = `① 🎮 OLD LOL version ➜ ${oldV || '—'}`;
+    const newLine = `② 🔴 Latest LOL version       ➜ ${newV || '—'}`;
+    regionBlocks.push(`${title}\n${oldLine}\n${newLine}`);
+  }
+
+  const oldVGC = prev.vgc || null;
+  const newVGC = vgcCurrent || null;
+  if (newVGC && oldVGC !== newVGC) anyChange = true;
+
+  const vgcBlock = [
+    `③ 🛡️ OLD VGC version ➜ ${oldVGC || '—'}`,
+    `④ 🟢 Latest VGC version       ➜ ${newVGC || '—'}`
+  ].join('\n');
+
+  // Mesajı yalnızca değişiklik olduğunda gönder
+  if (anyChange || DEBUG) {
+    const header = '📊 Versions';
+    const sep    = '────────────────────────────────';
+    const msg    = [header, ...regionBlocks, sep, vgcBlock].join('\n');
+    await postDiscord(msg);
+
+    // State'i güncelle
+    fs.writeFileSync(
+      STATE_FILE,
+      JSON.stringify({ lol: lolCurrent, vgc: newVGC }, null, 2),
+      'utf8'
+    );
+    if (DEBUG) console.log('State updated.');
+  } else {
+    console.log('No changes.');
+  }
+})().catch(e => console.error(`Uncaught error: ${e.message}`));
