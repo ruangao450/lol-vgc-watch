@@ -14,11 +14,11 @@ jobs:
     env:
       DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
       SUPPORTED_VGC: '1.17.12.4'
+      ALWAYS_SEND: '1'   # ← TEST MODU: her çalıştırmada mesaj göndersin
+      DEBUG: '1'         # ← (opsiyonel) debug alanını gösterir
       # MENTION: '<@&ROLE_ID>'
       # MENTION_SAFE: '<@&ROLE_ID>'
       # ALERT_ON_MISMATCH: '1'
-      ALWAYS_SEND: '1'
-      # DEBUG: '1'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
