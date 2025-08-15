@@ -3,14 +3,22 @@ name: VGC Watch
 on:
   workflow_dispatch:
   schedule:
-    - cron: '*/10 * * * *'   # every 10 minutes
+    - cron: '*/10 * * * *'
 
 permissions:
   contents: read
 
 jobs:
-  run:
+  watch:
     runs-on: ubuntu-latest
+    env:
+      DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+      SUPPORTED_VGC: '1.17.12.4'
+      # MENTION: '<@&ROLE_ID>'
+      # MENTION_SAFE: '<@&ROLE_ID>'
+      # ALERT_ON_MISMATCH: '1'
+      ALWAYS_SEND: '1'
+      # DEBUG: '1'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,11 +30,3 @@ jobs:
 
       - name: Run VGC watcher
         run: node check.cjs
-        env:
-          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-          SUPPORTED_VGC: '1.17.12.4'
-          ALWAYS_SEND: '1'
-          # MENTION: '<@&ROLE_ID>'        # optional
-          # MENTION_SAFE: '<@&ROLE_ID>'   # optional
-          # ALERT_ON_MISMATCH: '1'        # optional
-          # DEBUG: '1'                    # optional (testing)
