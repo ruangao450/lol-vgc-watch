@@ -1,10 +1,10 @@
 // LoL uzun build (örn. 15.16.704.6097) + VGC sürümü izleme
 // Bölgeler: euw, na, kr, br, lan, tr  (LOL_REGIONS ile değiştirilebilir)
 // - LoL: live-<slug>-win.json -> (artifact || manifest) -> uzun sürüm
-//        olmazsa releases/<N>.*; o da olmazsa releaselisting_<REGION> -> solutionmanifest/releasemanifest
+//        olmazsa releases/<N>.*; o da olmazsa (bölgesel VE global) releaselisting -> solution/release manifest
 //        hiçbiri yoksa kısa patchline (263 vb.) yazılır
 // - VGC: "anticheat.vanguard.version" düz anahtarı + nested/regex fallback
-// - Yalnız değişince mesaj atar; test için ALWAYS_SEND=1 / DEBUG=1 kullan
+// - Sadece değişince mesaj atar; test için ALWAYS_SEND=1 / DEBUG=1 kullan
 
 const fs = require("fs");
 const path = require("path");
@@ -40,6 +40,10 @@ const RELS = id => [
   `https://lol.secure.dyn.riotcdn.net/channels/public/releases/${id}/release.manifest`
 ];
 const LISTING = R => `https://lol.secure.dyn.riotcdn.net/releases/live/solutions/lol_game_client_sln/releases/releaselisting_${R}`;
+// GLOBAL fallback (suffix yok)
+const LISTING_GLOBAL_SOL = `https://lol.secure.dyn.riotcdn.net/releases/live/solutions/lol_game_client_sln/releases/releaselisting`;
+const LISTING_GLOBAL_PROJ = `https://lol.secure.dyn.riotcdn.net/releases/live/projects/lol_game_client/releases/releaselisting`;
+
 const SOLMAN  = id => `https://lol.secure.dyn.riotcdn.net/releases/live/solutions/lol_game_client_sln/releases/${id}/solutionmanifest`;
 const PROJMAN = id => `https://lol.secure.dyn.riotcdn.net/releases/live/projects/lol_game_client/releases/${id}/releasemanifest`;
 
@@ -117,7 +121,7 @@ function artifactFrom(text, json) {
   return null;
 }
 const pickReleaseId = txt => {
-  const m = txt.match(/\b\d+\.\d+\.\d+\.\d+\b/);
+  const m = txt.match(/\b\d+\.\d+\.\d+\.\d+\b/); // 0.0.0.#### benzeri
   return m ? m[0] : null;
 };
 
@@ -151,7 +155,7 @@ async function getLol(region){
 
     if (direct && !shortCandidate) shortCandidate = String(direct).trim();
 
-    // direct varsa /releases/<N>.* dene
+    // direct varsa releases/<N>.* dene
     if (direct) {
       const id = String(direct).trim();
       for (const url of RELS(id)) {
@@ -166,7 +170,7 @@ async function getLol(region){
     }
   }
 
-  // 2) Fallback: releaselisting_<REGION> -> solutionmanifest / releasemanifest
+  // 2) Bölgesel releaselisting (EUW/NA/KR/BR/LA1/TR)
   const R = LISTING_REGION[region] || region.toUpperCase();
   const list = await fetchText(LISTING(R));
   tried.push(`releaselisting_${R}:${list.status}`);
@@ -188,7 +192,48 @@ async function getLol(region){
     }
   }
 
-  // 3) Kısa patchline'a düş
+  // 3) GLOBAL releaselisting fallback (suffix yok)
+  const gl1 = await fetchText(LISTING_GLOBAL_SOL);
+  tried.push(`releaselisting_global_sol:${gl1.status}`);
+  if (gl1.ok && gl1.text) {
+    const rid = pickReleaseId(gl1.text);
+    if (rid) {
+      const sol = await fetchText(SOLMAN(rid));
+      tried.push(`solutionmanifest(global):${sol.status}`);
+      if (sol.ok) {
+        const art = artifactFrom(sol.text, null);
+        if (art) return { value: shorten(art), debug: tried.concat("artifact:solutionmanifest(global)") };
+      }
+      const prm = await fetchText(PROJMAN(rid));
+      tried.push(`releasemanifest(global):${prm.status}`);
+      if (prm.ok) {
+        const art = artifactFrom(prm.text, null);
+        if (art) return { value: shorten(art), debug: tried.concat("artifact:releasemanifest(global)") };
+      }
+    }
+  }
+
+  const gl2 = await fetchText(LISTING_GLOBAL_PROJ);
+  tried.push(`releaselisting_global_proj:${gl2.status}`);
+  if (gl2.ok && gl2.text) {
+    const rid = pickReleaseId(gl2.text);
+    if (rid) {
+      const sol = await fetchText(SOLMAN(rid));
+      tried.push(`solutionmanifest(global2):${sol.status}`);
+      if (sol.ok) {
+        const art = artifactFrom(sol.text, null);
+        if (art) return { value: shorten(art), debug: tried.concat("artifact:solutionmanifest(global2)") };
+      }
+      const prm = await fetchText(PROJMAN(rid));
+      tried.push(`releasemanifest(global2):${prm.status}`);
+      if (prm.ok) {
+        const art = artifactFrom(prm.text, null);
+        if (art) return { value: shorten(art), debug: tried.concat("artifact:releasemanifest(global2)") };
+      }
+    }
+  }
+
+  // 4) Kısa patchline'a düş
   if (shortCandidate) return { value: shortCandidate, debug: tried.concat("fallback:short") };
   return { value: null, debug: tried.concat("no-hit") };
 }
